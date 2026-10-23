@@ -36,3 +36,12 @@ export function greetOnBridgeReady(room, greet) {
   check();
   return stop;
 }
+
+/**
+ * For calls that do not come through Chert (the web video call), there is no bridge_ready
+ * signal: greet shortly after the caller joins instead.
+ */
+export function greetOnJoin(greet, delayMs = 1500) {
+  const timer = setTimeout(() => { try { greet(); } catch { /* the call ended first */ } }, delayMs);
+  return () => clearTimeout(timer);
+}

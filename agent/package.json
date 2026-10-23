@@ -12,8 +12,8 @@
     "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check image.mjs && node --check camera.mjs && node --check brain.mjs && node --check imessage.mjs && node --check ask-help.mjs && node --check webcam.mjs",
     "test:picture": "node test-picture.mjs",
     "help": "node agent.mjs --help",
-    "webcam": "node webcam.mjs",
-    "camera": "node webcam.mjs --tunnel"
+    "webcam": "node --env-file=.env.local webcam.mjs",
+    "camera": "node --env-file=.env.local webcam.mjs --tunnel"
   },
   "dependencies": {
     "@livekit/agents": "1.8.0",
@@ -22,6 +22,7 @@
     "@trychert/sdk": "0.1.0",
     "jpeg-js": "^0.4.4",
     "qrcode-terminal": "^0.12.0",
-    "zod": "^4.1.8"
+    "zod": "^4.1.8",
+    "livekit-server-sdk": "2.19.2"
   }
 }

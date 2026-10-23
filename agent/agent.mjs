@@ -14,7 +14,7 @@ import { z } from 'zod';
 import * as brain from './brain.mjs';
 import { CallerCamera } from './camera.mjs';
 import { drawFace, FPS, HEIGHT, WIDTH } from './face.mjs';
-import { greetOnBridgeReady } from './greet.mjs';
+import { greetOnBridgeReady, greetOnJoin } from './greet.mjs';
 import { annotate, shrink, toJpegBase64 } from './image.mjs';
 import { sendText } from './imessage.mjs';
 
@@ -113,7 +113,7 @@ export default defineAgent({
     // continue voice-only, using what they describe.
     let noVideoCount = 0;
     const noVideo = () => (++noVideoCount <= 2
-      ? 'No camera picture is reaching you yet. Ask them to open the FamDesk camera link in Safari on their phone, '
+      ? 'No camera picture is reaching you yet. If this is a FaceTime call, ask them to open the FamDesk camera link in Safari on their phone, '
         + 'tap "Show my camera", point it at the device, and keep that page on screen (they will still hear you). '
         + 'The red circles will appear on that page.'
       : 'The camera picture is still not available. Do NOT ask about the camera again. Instead, ask them to '
@@ -234,7 +234,10 @@ export default defineAgent({
       ? `Greet the caller warmly in one or two short sentences: say you're an AI helper, that ${request.requester} asked you to help with ${request.problem}, and ask them to point their camera at it.`
       : 'Greet the caller warmly in one short sentence: say you are an AI tech helper and ask what they need help with today.';
     // Greet once on Chert's bridge_ready signal (the call drops if silent for 10 s after it).
-    const stopGreeting = greetOnBridgeReady(ctx.room, () => session.generateReply({ instructions: greeting }));
+    // Web video calls (rooms named famdesk-web-…) have no Chert bridge, so greet on join.
+    const webCall = ctx.room.name?.startsWith('famdesk-web-');
+    const sayHello = () => session.generateReply({ instructions: greeting });
+    const stopGreeting = webCall ? greetOnJoin(sayHello) : greetOnBridgeReady(ctx.room, sayHello);
     ctx.addShutdownCallback(async () => stopGreeting());
   },
 });

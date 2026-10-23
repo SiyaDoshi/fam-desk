@@ -49,6 +49,13 @@ to the agent and shows the agent's red circle on the live view. The FaceTime cal
 
 If the line starts forwarding caller video, the agent uses that automatically.
 
+### Web video call (no FaceTime)
+
+`npm run camera` also prints a `/call` link. Opening it in Safari starts a full video call
+with the agent over LiveKit (back camera and microphone), with no Chert line needed. The agent
+sees the camera directly and the red circles appear on the same screen. Use it when the
+shared FaceTime line is offline.
+
 ## The three ways a call starts
 
 1. **Mom FaceTimes the line** directly. The agent asks what's wrong.
