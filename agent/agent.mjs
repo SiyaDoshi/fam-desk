@@ -1,13 +1,13 @@
 // FamDesk: a patient tech-support helper for parents, on FaceTime through Chert.
 // Pipeline: speech-to-text -> LLM (with tools) -> text-to-speech. No OpenAI key needed:
-//   - STT, TTS and VAD: LiveKit Inference (uses your LiveKit Cloud project's free credits)
+//   - STT and TTS: LiveKit Inference (uses your LiveKit Cloud project's free credits)
 //   - LLM: Nebius Token Factory (OpenAI-compatible) if NEBIUS_API_KEY is set,
 //          otherwise LiveKit Inference.
 // It watches the caller's camera, asks the brain (brain.mjs) what it sees, and points at
 // things by showing the caller their own snapshot with a red circle and arrow.
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { AutoSubscribe, cli, defineAgent, inference, llm, ServerOptions, voice } from '@livekit/agents';
+import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import { LocalVideoTrack, TrackSource, VideoBufferType, VideoFrame, VideoSource } from '@livekit/rtc-node';
 import { z } from 'zod';
@@ -166,11 +166,15 @@ export default defineAgent({
       }),
     };
 
+    // Turn detection comes from the speech-to-text model (Deepgram Flux detects end of turn itself).
+    // No local VAD: on-device VAD runs in a separate process fed through the main worker, and in
+    // testing that pipeline stalled mid-call (end of turn took 30 s, then the job was orphaned).
     const session = new voice.AgentSession({
-      stt: process.env.LIVEKIT_STT || 'deepgram/nova-3:en',
+      stt: process.env.LIVEKIT_STT || 'deepgram/flux-general-en',
       llm: chooseLLM(),
       tts: process.env.LIVEKIT_TTS || 'cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
-      vad: new inference.VAD(),
+      vad: null,
+      turnHandling: { turnDetection: 'stt' },
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
     session.on(voice.AgentSessionEventTypes.Error, event => console.error('[session error]', event.error?.message || event.error));

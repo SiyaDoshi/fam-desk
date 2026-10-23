@@ -18,7 +18,7 @@ Everything lives in `agent/`: a Node LiveKit agent on Chert FaceTime (started fr
 
 ## Models (no OpenAI key)
 
-- Speech: LiveKit Inference (STT `deepgram/nova-3`, TTS Cartesia, VAD silero).
+- Speech: LiveKit Inference (STT `deepgram/flux-general-en` with STT turn detection (no local VAD), TTS Cartesia).
 - LLM + vision: Nebius Token Factory, OpenAI-compatible, base URL `https://api.tokenfactory.nebius.com/v1/`.
 - Search: Keenable `POST https://api.keenable.ai/v1/search` with `X-API-Key: keen_...`.
 
