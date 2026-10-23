@@ -113,8 +113,9 @@ export default defineAgent({
     // continue voice-only, using what they describe.
     let noVideoCount = 0;
     const noVideo = () => (++noVideoCount <= 2
-      ? 'No camera picture is reaching you yet. Ask them to open the FamDesk camera link (it was sent to them by text) '
-        + 'in Safari on their phone, tap "Show my camera", and point it at the device. The FaceTime call keeps going.'
+      ? 'No camera picture is reaching you yet. Ask them to open the FamDesk camera link in Safari on their phone, '
+        + 'tap "Show my camera", point it at the device, and keep that page on screen (they will still hear you). '
+        + 'The red circles will appear on that page.'
       : 'The camera picture is still not available. Do NOT ask about the camera again. Instead, ask them to '
         + 'describe the device, its brand and any lights or messages they see, then call find_fix and guide them by voice.');
 
