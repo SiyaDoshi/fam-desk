@@ -18,12 +18,26 @@ export class CallerCamera {
       this.#track = track;
     };
     const gone = (track) => { if (track === this.#track) this.#track = null; };
+    // Diagnostics: log every track anyone publishes or we subscribe to, to see whether
+    // the caller's camera reaches the room at all.
+    const logPub = (pub, who) => console.log(`[camera] ${who.identity} published ${pub.kind === TrackKind.KIND_VIDEO ? 'VIDEO' : 'audio'} track (source ${pub.source})`);
+    const logSub = (track, _pub, who) => console.log(`[camera] subscribed to ${who.identity}'s ${track.kind === TrackKind.KIND_VIDEO ? 'VIDEO' : 'audio'} track`);
+    room.on(RoomEvent.TrackPublished, logPub);
+    room.on(RoomEvent.TrackSubscribed, logSub);
     room.on(RoomEvent.TrackSubscribed, watch);
     room.on(RoomEvent.TrackUnsubscribed, gone);
     for (const pub of participant.trackPublications.values()) {
+      logPub(pub, participant);
       if (pub.track) watch(pub.track, pub, participant);
     }
-    this.stop = () => { room.off(RoomEvent.TrackSubscribed, watch); room.off(RoomEvent.TrackUnsubscribed, gone); };
+    const report = setTimeout(() => {
+      if (!this.#track) console.warn(`[camera] no video track from ${participant.identity} after 15 s: the caller's camera is not reaching the agent`);
+    }, 15_000);
+    this.stop = () => {
+      clearTimeout(report);
+      room.off(RoomEvent.TrackPublished, logPub); room.off(RoomEvent.TrackSubscribed, logSub);
+      room.off(RoomEvent.TrackSubscribed, watch); room.off(RoomEvent.TrackUnsubscribed, gone);
+    };
   }
 
   get hasVideo() { return this.#track !== null; }

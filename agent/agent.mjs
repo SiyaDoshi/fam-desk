@@ -96,7 +96,13 @@ export default defineAgent({
       const img = await camera.snapshot();
       return img ? shrink(img, 640) : null;
     };
-    const noVideo = 'I cannot see the camera yet. Ask them to switch to FaceTime video and point the back camera at the device.';
+    // If the caller's video never reaches the room, don't loop on "switch your camera":
+    // continue voice-only, using what they describe.
+    let noVideoCount = 0;
+    const noVideo = () => (++noVideoCount <= 1
+      ? 'No camera picture is reaching you yet. Ask them ONCE to make sure it is a FaceTime video call, then continue.'
+      : 'The camera picture is not available on this call. Do NOT ask about the camera again. Instead, ask them to '
+        + 'describe the device, its brand and any lights or messages they see, then call find_fix and guide them by voice.');
 
     const tools = {
       look_at_device: llm.tool({
@@ -104,7 +110,7 @@ export default defineAgent({
         parameters: z.object({ hint: z.string().describe('What the caller said it is, or empty').optional() }),
         execute: async ({ hint }) => {
           const img = await takeSnapshot();
-          if (!img) return noVideo;
+          if (!img) return noVideo();
           state.device = await brain.identify(toJpegBase64(img), hint || '');
           state.log.push(`Saw: ${JSON.stringify(state.device)}`);
           return state.device;
@@ -126,7 +132,7 @@ export default defineAgent({
         parameters: z.object({ target: z.string().describe('What to point at, e.g. "reset button"') }),
         execute: async ({ target }) => {
           const img = await takeSnapshot();
-          if (!img) return noVideo;
+          if (!img) return noVideo();
           const spot = await brain.locate(toJpegBase64(img), target, { width: img.width, height: img.height });
           if (!spot?.found) return `Could not find the ${target} in the picture. Ask them to move the camera closer to it.`;
           const point = { x: Math.min(1, Math.max(0, spot.x)), y: Math.min(1, Math.max(0, spot.y)) };
@@ -143,7 +149,7 @@ export default defineAgent({
         parameters: z.object({ step: z.string().describe('The step they were asked to do') }),
         execute: async ({ step }) => {
           const img = await takeSnapshot();
-          if (!img) return noVideo;
+          if (!img) return noVideo();
           const result = await brain.check(toJpegBase64(img), step);
           if (result.done) pointer = null;
           state.log.push(`Checked "${step}": ${result.done ? 'done' : 'not yet'}`);
