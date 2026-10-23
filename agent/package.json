@@ -12,7 +12,8 @@
     "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check image.mjs && node --check camera.mjs && node --check brain.mjs && node --check imessage.mjs && node --check ask-help.mjs && node --check webcam.mjs",
     "test:picture": "node test-picture.mjs",
     "help": "node agent.mjs --help",
-    "webcam": "node webcam.mjs"
+    "webcam": "node webcam.mjs",
+    "camera": "node webcam.mjs --tunnel"
   },
   "dependencies": {
     "@livekit/agents": "1.8.0",
@@ -20,6 +21,7 @@
     "@livekit/rtc-node": "0.13.35",
     "@trychert/sdk": "0.1.0",
     "jpeg-js": "^0.4.4",
+    "qrcode-terminal": "^0.12.0",
     "zod": "^4.1.8"
   }
 }

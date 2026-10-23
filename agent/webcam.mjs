@@ -1,11 +1,12 @@
 // Phone camera page, used while the Chert line forwards only the caller's audio.
-//   npm run webcam                                   (this server, on your Mac)
-//   npx --yes cloudflared tunnel --url http://localhost:8090   (a public https link)
-// Open  https://<tunnel>.trycloudflare.com/<code>  in Safari on the iPhone that is on the
-// FaceTime call, and allow the camera. The page sends back-camera frames to the agent and
+//   npm run camera   -> starts this page AND a secure public link, then prints the full
+//                       link and a QR code. Scan it with the iPhone camera, tap "Show my camera".
+//   (npm run webcam  -> the page only, for http://localhost:8090/<code> on this Mac)
+// Open the link in Safari on the iPhone that is on the FaceTime call, and allow the camera. The page sends back-camera frames to the agent and
 // shows the red circle the agent draws, right on the live camera view.
 // It also works in a laptop browser at http://localhost:8090/<code>.
 // When the bridge does publish caller video, the agent uses that instead.
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -94,8 +95,33 @@ createServer((req, res) => {
   }
   res.writeHead(404).end('Not found');
 }).listen(PORT, '127.0.0.1', () => {
-  console.log(`FamDesk camera page is running. Your private link code is: ${CODE}`);
-  console.log(`  On this Mac:     http://localhost:${PORT}/${CODE}`);
-  console.log(`  On the iPhone:   run  npx --yes cloudflared tunnel --url http://localhost:${PORT}`);
-  console.log(`                   then open  https://<the trycloudflare address>/${CODE}  in Safari`);
+  console.log(`FamDesk camera page is running (code ${CODE}). On this Mac: http://localhost:${PORT}/${CODE}`);
+  if (process.argv.includes('--tunnel')) startTunnel();
 });
+
+/** A free Cloudflare quick tunnel (no account): gives the iPhone an https link to this page. */
+function startTunnel() {
+  console.log('Opening a secure link for the iPhone (takes about 10 seconds)...');
+  const child = spawn('npx', ['--yes', 'cloudflared', 'tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  let shown = false;
+  const scan = async chunk => {
+    const match = !shown && String(chunk).match(/https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/);
+    if (!match) return;
+    shown = true;
+    const link = `${match[0]}/${CODE}`;
+    console.log('\n======================================================');
+    console.log('  iPhone camera link (open in Safari, or scan the QR):');
+    console.log(`  ${link}`);
+    console.log('======================================================');
+    try { (await import('qrcode-terminal')).default.generate(link, { small: true }); } catch {}
+    console.log('Keep this window open. If the page does not load at first, wait 10 seconds and reload.\n');
+  };
+  child.stdout.on('data', scan);
+  child.stderr.on('data', scan);
+  child.on('error', err => console.warn(`[tunnel] could not start cloudflared (${err.message}). The page still works on this Mac.`));
+  child.on('exit', code => console.log(`[tunnel] stopped (${code}). Run npm run camera again for a new link.`));
+  const stop = () => { child.kill('SIGTERM'); process.exit(0); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+}

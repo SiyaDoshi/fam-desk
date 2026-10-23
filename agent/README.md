@@ -38,11 +38,10 @@ The shared Chert line currently forwards only the caller's audio (the bridge pub
 line). Until then, the caller shows the device through a Safari page on the same iPhone:
 
 ```sh
-npm run webcam                                              # terminal 3: prints a private link code
-npx --yes cloudflared tunnel --url http://localhost:8090    # terminal 4: prints an https address
+npm run camera        # starts the page and a secure link, prints the link and a QR code
 ```
 
-On the iPhone (during the FaceTime call), open `https://<trycloudflare address>/<code>` in
+On the iPhone (during the FaceTime call), scan the QR code or open the printed link in
 Safari, tap **Show my camera**, and point the back camera at the device. The page sends frames
 to the agent and shows the agent's red circle on the live view. The FaceTime call keeps going
 (its own camera pauses, since iOS lets one app use the camera at a time). Put the link in
