@@ -12,17 +12,18 @@ Everything lives in `agent/`: a Node LiveKit agent on Chert FaceTime (started fr
 `bridge_ready`, exactly one audio track, the agent publishes its own camera track.
 
 - `agent.mjs` — session, persona, tools, the agent's video output
-- `brain.mjs` — vision (Nebius vision model) and the Fix Researcher (Keenable search → Nebius steps)
+- `brain.mjs` — vision and the Fix Researcher (Keenable search → model-written steps)
 - `camera.mjs` — caller video snapshots; `image.mjs` — pixels, JPEG, circle and arrow
 - `imessage.mjs`, `ask-help.mjs` — optional Chert iMessage sending
 
 ## Models (no OpenAI key)
 
 - Speech: LiveKit Inference (STT `deepgram/flux-general-en` with STT turn detection (no local VAD), TTS Cartesia).
-- LLM + vision: Nebius Token Factory, OpenAI-compatible, base URL `https://api.tokenfactory.nebius.com/v1/`.
+- LLM + vision: LiveKit Inference (`openai/gpt-4.1-mini`) by default; Nebius Token Factory
+  (OpenAI-compatible, `https://api.tokenfactory.nebius.com/v1/`) when `NEBIUS_API_KEY` is set, falling back to LiveKit.
 - Search: Keenable `POST https://api.keenable.ai/v1/search` with `X-API-Key: keen_...`.
 
-Every brain function falls back to a fake answer when keys are missing or a call fails.
+Every brain function falls back to a fake answer if all model calls fail.
 
 ## Secrets
 

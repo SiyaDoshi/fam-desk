@@ -1,17 +1,19 @@
 // The "brain": vision and research, running inside the agent process.
-//   - Vision (identify, locate, check): a Nebius vision model, via the OpenAI-compatible API
-//   - Research (find the fix): Keenable web search, then a Nebius model turns the results into steps
-// Every function falls back to a fake answer when keys are missing or a call fails,
-// so the FaceTime side keeps working while you set things up.
+//   - Vision (identify, locate, check): a vision model looks at a camera snapshot
+//   - Research (find the fix): Keenable web search, then a model turns the results into steps
+// Models: Nebius if NEBIUS_API_KEY is set; otherwise (or if Nebius fails) LiveKit Inference,
+// which uses the same LiveKit Cloud credits as the agent's voice. Fake answers only if both fail.
+import { inference, llm } from '@livekit/agents';
 
 const NEBIUS_URL = (process.env.NEBIUS_BASE_URL || 'https://api.tokenfactory.nebius.com/v1/').replace(/\/?$/, '/');
 const NEBIUS_KEY = process.env.NEBIUS_API_KEY || '';
 const TEXT_MODEL = process.env.NEBIUS_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
 const VISION_MODEL = process.env.NEBIUS_VISION_MODEL || 'Qwen/Qwen2.5-VL-72B-Instruct';
+const LIVEKIT_MODEL = process.env.LIVEKIT_BRAIN_LLM || 'openai/gpt-4.1-mini';
 const KEENABLE_KEY = process.env.KEENABLE_API_KEY || '';
 const TIMEOUT_MS = Number(process.env.BRAIN_TIMEOUT_MS || 25000);
 
-// Fake answers (used until NEBIUS_API_KEY is set, or if a call fails).
+// Fake answers (used only if every model call fails).
 // Scenario: a laptop that won't charge. Real vision replaces all of this with what the camera sees.
 const FAKES = {
   identify: () => ({
@@ -39,7 +41,7 @@ function parseJson(text) {
   return JSON.parse(match[0]);
 }
 
-async function nebius(model, messages, maxTokens = 600) {
+async function nebius(model, messages, maxTokens) {
   const res = await fetch(NEBIUS_URL + 'chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${NEBIUS_KEY}` },
@@ -51,29 +53,56 @@ async function nebius(model, messages, maxTokens = 600) {
   return data.choices?.[0]?.message?.content || '';
 }
 
+let livekitLLM = null;
+async function livekit({ image, system, prompt }) {
+  livekitLLM ??= new inference.LLM({ model: LIVEKIT_MODEL });
+  const chatCtx = llm.ChatContext.empty();
+  if (system) chatCtx.addMessage({ role: 'system', content: system });
+  chatCtx.addMessage({
+    role: 'user',
+    content: image
+      ? [llm.createImageContent({ image: `data:image/jpeg;base64,${image}`, inferenceDetail: 'auto' }), prompt]
+      : prompt,
+  });
+  const work = livekitLLM.chat({ chatCtx }).collect();
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('LiveKit model timed out')), TIMEOUT_MS));
+  const text = (await Promise.race([work, timeout])).text;
+  if (!text) throw new Error(`empty reply from LiveKit model ${LIVEKIT_MODEL}`);
+  return text;
+}
+
+/** One model call: Nebius first if configured, then LiveKit Inference. Returns the reply text. */
+async function ask({ image, system, prompt, maxTokens = 600 }) {
+  if (NEBIUS_KEY) {
+    try {
+      const messages = [];
+      if (system) messages.push({ role: 'system', content: system });
+      messages.push({
+        role: 'user',
+        content: image
+          ? [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } }, { type: 'text', text: prompt }]
+          : prompt,
+      });
+      return await nebius(image ? VISION_MODEL : TEXT_MODEL, messages, maxTokens);
+    } catch (err) {
+      console.warn(`[brain] Nebius failed (${err.message}); trying LiveKit Inference`);
+    }
+  }
+  return livekit({ image, system, prompt });
+}
+
 /** Ask the vision model about one image; returns parsed JSON. */
 async function see(image, question) {
-  const reply = await nebius(VISION_MODEL, [{
-    role: 'user',
-    content: [
-      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } },
-      { type: 'text', text: `${question}\nAnswer with ONLY a JSON object, no other text.` },
-    ],
-  }]);
-  return parseJson(reply);
+  return parseJson(await ask({ image, prompt: `${question}\nAnswer with ONLY a JSON object, no other text.` }));
 }
 
 async function guarded(name, fn) {
-  if (!NEBIUS_KEY) {
-    console.log(`[brain:fake] ${name} (no NEBIUS_API_KEY)`);
-    return FAKES[name]();
-  }
   try {
     const result = await fn();
     console.log(`[brain] ${name}:`, JSON.stringify(result).slice(0, 300));
     return result;
   } catch (err) {
-    console.warn(`[brain] ${name} failed (${err.message}); using fake answer`);
+    console.warn(`[brain:fake] ${name} failed (${err.message}); using fake answer`);
     return FAKES[name]();
   }
 }
@@ -130,16 +159,17 @@ export const research = (device, problem) => guarded('research', async () => {
   }
   const context = results.map((r, i) =>
     `[${i + 1}] ${r.title}\n${r.url}\n${r.snippet || r.description || ''}`).join('\n\n');
-  const reply = await nebius(TEXT_MODEL, [
-    { role: 'system', content: 'You write tech-support steps for older, non-technical people. Plain words, one action per step.' },
-    { role: 'user', content: `Device: ${name || 'unknown device'}. Visible issue: ${device?.visible_issue || 'none'}.
+  const reply = await ask({
+    system: 'You write tech-support steps for older, non-technical people. Plain words, one action per step.',
+    prompt: `Device: ${name || 'unknown device'}. Visible issue: ${device?.visible_issue || 'none'}.
 Problem in the caller's words: "${problem}".
 ${context ? `Web results:\n${context}\n\nBase the steps on these results.` : 'No web results; use common, safe fixes.'}
 Write 3 to 6 steps, simplest and safest first (restart before reset). Never include steps that need passwords
 or payment details. For each step give "target": the one physical thing or on-screen item to look at
 (e.g. "power button", "Settings icon"), or "" if none.
-Return ONLY JSON: {"steps":[{"text":"...","target":"..."}]}` },
-  ], 900);
+Return ONLY JSON: {"steps":[{"text":"...","target":"..."}]}`,
+    maxTokens: 900,
+  });
   const { steps } = parseJson(reply);
   return {
     steps: (steps || []).slice(0, 6),
