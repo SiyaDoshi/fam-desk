@@ -19,9 +19,10 @@ const requester = process.env.FAMILY_NAME || 'Your family';
 const line = process.env.AGENT_LINE_NUMBER || 'this number';
 writeFileSync(REQUEST_FILE, JSON.stringify({ phone, problem, requester, at: new Date().toISOString() }, null, 2));
 
+const cameraLink = process.env.CAMERA_LINK ? ` When we're on the call, open this so I can see: ${process.env.CAMERA_LINK}` : '';
 const body = `Hi! ${requester} asked me to help you with ${problem}. ` +
-  `I'm an AI helper. Whenever you're ready, just FaceTime me at ${line} and point your camera at it. ` +
-  `I'll walk you through it step by step.`;
+  `I'm an AI helper. Whenever you're ready, just FaceTime me at ${line}. ` +
+  `I'll walk you through it step by step.${cameraLink}`;
 
 console.log(`About to text ${phone}:\n  "${body}"`);
 const result = await sendText(phone, body);

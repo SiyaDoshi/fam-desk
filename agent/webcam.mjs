@@ -1,62 +1,101 @@
-// Stand-in camera while the Chert line does not forward the caller's video.
-//   npm run webcam   ->  open http://localhost:8090 in Chrome or Safari and allow the camera
-// The page sends a JPEG frame about twice a second; this server saves the latest one to
-// .webcam.jpg, and the agent's snapshots read it when no caller video reaches the call.
+// Phone camera page, used while the Chert line forwards only the caller's audio.
+//   npm run webcam                                   (this server, on your Mac)
+//   npx --yes cloudflared tunnel --url http://localhost:8090   (a public https link)
+// Open  https://<tunnel>.trycloudflare.com/<code>  in Safari on the iPhone that is on the
+// FaceTime call, and allow the camera. The page sends back-camera frames to the agent and
+// shows the red circle the agent draws, right on the live camera view.
+// It also works in a laptop browser at http://localhost:8090/<code>.
 // When the bridge does publish caller video, the agent uses that instead.
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.WEBCAM_PORT || 8090);
+const CODE = process.env.WEBCAM_CODE || randomBytes(4).toString('hex');   // keeps the public link private
 const FILE = fileURLToPath(new URL('./.webcam.jpg', import.meta.url));
-const TMP = FILE + '.tmp';
+const POINTER = fileURLToPath(new URL('./.pointer.jpg', import.meta.url));
 
-const PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+const PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>FamDesk camera</title><style>
-body{margin:0;background:#10283a;color:#eaf6f1;font:16px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px}
-video{max-width:100%;max-height:70vh;border-radius:12px;background:#000}
-#s{opacity:.8} select,button{font:inherit;padding:6px 10px;border-radius:8px}
-</style></head><body>
-<h2 style="margin:0">FamDesk camera</h2>
-<div><select id="cams"></select> <button id="flip">Mirror off</button></div>
-<video id="v" autoplay playsinline muted></video><div id="s">Starting camera…</div>
-<canvas id="c" style="display:none"></canvas>
+html,body{margin:0;height:100%;background:#0b1f2c;color:#eaf6f1;font:18px -apple-system,system-ui,sans-serif}
+#wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+video,#ptr{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+#ptr{display:none}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+  background:rgba(11,31,44,.85);text-align:center}
+#start{font:inherit;font-size:20px;padding:14px 22px;border:0;border-radius:14px;background:#8de0c4;color:#0b1f2c;font-weight:600}
+</style></head><body><div id="wrap">
+<video id="v" autoplay playsinline muted></video><img id="ptr" alt="">
+<div id="bar"><div id="msg">FamDesk helper camera</div><p><button id="start">Show my camera</button></p></div>
+</div><canvas id="c" style="display:none"></canvas>
 <script>
-const v=document.getElementById('v'),c=document.getElementById('c'),s=document.getElementById('s'),cams=document.getElementById('cams');
-let stream,sent=0;
-async function start(id){
-  if(stream)stream.getTracks().forEach(t=>t.stop());
-  stream=await navigator.mediaDevices.getUserMedia({video:id?{deviceId:{exact:id},width:1280}:{width:1280},audio:false});
-  v.srcObject=stream;
-  const list=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
-  cams.innerHTML=list.map(d=>'<option value="'+d.deviceId+'">'+(d.label||'Camera')+'</option>').join('');
-  cams.value=stream.getVideoTracks()[0].getSettings().deviceId||'';
-}
-cams.onchange=()=>start(cams.value);
-document.getElementById('flip').onclick=e=>{v.style.transform=v.style.transform?'':'scaleX(-1)';e.target.textContent=v.style.transform?'Mirror on':'Mirror off'};
+const base=location.pathname.replace(/\\/$/,'');
+const v=document.getElementById('v'),c=document.getElementById('c'),ptr=document.getElementById('ptr'),msg=document.getElementById('msg'),btn=document.getElementById('start');
+let running=false;
+btn.onclick=async()=>{
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});
+    v.srcObject=stream;btn.remove();running=true;msg.textContent='Point the camera at the device. Keep this page open.';
+    tick();poll();
+  }catch(e){msg.textContent='Could not open the camera: '+e.message;}
+};
 async function tick(){
-  if(v.videoWidth){
-    c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
+  if(running&&v.videoWidth){
+    const s=Math.min(1,960/Math.max(v.videoWidth,v.videoHeight));
+    c.width=Math.round(v.videoWidth*s);c.height=Math.round(v.videoHeight*s);
+    c.getContext('2d').drawImage(v,0,0,c.width,c.height);
     const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
-    try{await fetch('/frame',{method:'POST',body:blob});sent++;s.textContent='Sending to the agent ('+sent+' frames). Keep this tab open.';}
-    catch{s.textContent='Cannot reach the camera server. Is npm run webcam running?';}
+    try{await fetch(base+'/frame',{method:'POST',body:blob});}catch{msg.textContent='Lost connection to the helper. Reload the page.';}
   }
   setTimeout(tick,500);
 }
-start().then(tick).catch(e=>s.textContent='Camera error: '+e.message);
+let last='';
+async function poll(){
+  try{
+    const r=await fetch(base+'/pointer',{cache:'no-store'});
+    if(r.status===200){
+      const stamp=r.headers.get('x-stamp')||'';
+      if(stamp!==last){last=stamp;ptr.src=URL.createObjectURL(await r.blob());}
+      ptr.style.display='block';msg.textContent='Look at the red circle.';
+    }else{ptr.style.display='none';if(running)msg.textContent='Point the camera at the device. Keep this page open.';}
+  }catch{}
+  setTimeout(poll,800);
+}
 </script></body></html>`;
 
 createServer((req, res) => {
-  if (req.method === 'POST' && req.url === '/frame') {
+  const url = new URL(req.url, 'http://x');
+  const prefix = `/${CODE}`;
+  if (!url.pathname.startsWith(prefix)) return res.writeHead(404).end('Not found');
+  const route = url.pathname.slice(prefix.length);
+  if (req.method === 'POST' && route === '/frame') {
     const chunks = [];
     req.on('data', d => chunks.push(d));
     req.on('end', () => {
-      try { writeFileSync(TMP, Buffer.concat(chunks)); renameSync(TMP, FILE); } catch {}
+      try { writeFileSync(FILE + '.tmp', Buffer.concat(chunks)); renameSync(FILE + '.tmp', FILE); } catch {}
       res.writeHead(204).end();
     });
     return;
   }
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE);
+  if (route === '/pointer') {
+    try {
+      const st = statSync(POINTER);
+      if (st.mtimeMs > Date.now()) {   // the agent sets mtime to when the circle should disappear
+        return res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'x-stamp': String(st.size) + '-' + st.ctimeMs })
+          .end(readFileSync(POINTER));
+      }
+    } catch {}
+    return res.writeHead(204).end();
+  }
+  if (route === '' || route === '/') {
+    return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(PAGE);
+  }
+  res.writeHead(404).end('Not found');
 }).listen(PORT, '127.0.0.1', () => {
-  console.log(`FamDesk camera: open http://localhost:${PORT} in Chrome or Safari and allow the camera.`);
+  console.log(`FamDesk camera page is running. Your private link code is: ${CODE}`);
+  console.log(`  On this Mac:     http://localhost:${PORT}/${CODE}`);
+  console.log(`  On the iPhone:   run  npx --yes cloudflared tunnel --url http://localhost:${PORT}`);
+  console.log(`                   then open  https://<the trycloudflare address>/${CODE}  in Safari`);
 });

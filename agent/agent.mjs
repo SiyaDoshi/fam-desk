@@ -5,7 +5,7 @@
 //          otherwise LiveKit Inference.
 // It watches the caller's camera, asks the brain (brain.mjs) what it sees, and points at
 // things by showing the caller their own snapshot with a red circle and arrow.
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AutoSubscribe, cli, defineAgent, llm, ServerOptions, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
@@ -19,6 +19,19 @@ import { annotate, shrink, toJpegBase64 } from './image.mjs';
 import { sendText } from './imessage.mjs';
 
 const REQUEST_FILE = fileURLToPath(new URL('./.help-request.json', import.meta.url));
+const POINTER_FILE = fileURLToPath(new URL('./.pointer.jpg', import.meta.url));
+
+/** Share the circled picture with the phone camera page (webcam.mjs). Its mtime = when to hide it. */
+function sharePointer(img, point, until) {
+  try {
+    const pixels = annotate(img, point, img.width, img.height, false);
+    const tmp = POINTER_FILE + '.tmp';
+    writeFileSync(tmp, Buffer.from(toJpegBase64({ data: pixels, width: img.width, height: img.height }, 85), 'base64'));
+    renameSync(tmp, POINTER_FILE);
+    utimesSync(POINTER_FILE, new Date(), new Date(until));
+  } catch (err) { console.warn('[pointer] could not share with the camera page:', err.message); }
+}
+function hidePointer() { rmSync(POINTER_FILE, { force: true }); }
 const SHOW_POINTER_MS = 30_000;   // how long a circled picture stays up
 
 function chooseLLM() {
@@ -55,7 +68,7 @@ How you work:
    and are showing it, call look_at_device right away instead of asking again.
 2. Call find_fix with the device and their problem in their words.
 3. Guide ONE step at a time. Before each step that involves pressing, plugging or finding something,
-   call point_to with what to look at, then say "I've circled it on your screen."
+   call point_to with what to look at, then say "I've circled it in red on your screen."
 4. Wait for them to say they did it. Then call check_step. If it is not done, gently help again.
 5. When it works, or if it needs a repair person, call finish_call with a short summary, then say goodbye.
 
@@ -99,9 +112,10 @@ export default defineAgent({
     // If the caller's video never reaches the room, don't loop on "switch your camera":
     // continue voice-only, using what they describe.
     let noVideoCount = 0;
-    const noVideo = () => (++noVideoCount <= 1
-      ? 'No camera picture is reaching you yet. Ask them ONCE to make sure it is a FaceTime video call, then continue.'
-      : 'The camera picture is not available on this call. Do NOT ask about the camera again. Instead, ask them to '
+    const noVideo = () => (++noVideoCount <= 2
+      ? 'No camera picture is reaching you yet. Ask them to open the FamDesk camera link (it was sent to them by text) '
+        + 'in Safari on their phone, tap "Show my camera", and point it at the device. The FaceTime call keeps going.'
+      : 'The camera picture is still not available. Do NOT ask about the camera again. Instead, ask them to '
         + 'describe the device, its brand and any lights or messages they see, then call find_fix and guide them by voice.');
 
     const tools = {
@@ -140,6 +154,7 @@ export default defineAgent({
             frames: [annotate(img, point, WIDTH, HEIGHT, false), annotate(img, point, WIDTH, HEIGHT, true)],
             until: Date.now() + SHOW_POINTER_MS,
           };
+          sharePointer(img, point, pointer.until);
           state.log.push(`Pointed at: ${target}`);
           return `The ${target} is now circled in red on their screen.`;
         },
@@ -151,7 +166,7 @@ export default defineAgent({
           const img = await takeSnapshot();
           if (!img) return noVideo();
           const result = await brain.check(toJpegBase64(img), step);
-          if (result.done) pointer = null;
+          if (result.done) { pointer = null; hidePointer(); }
           state.log.push(`Checked "${step}": ${result.done ? 'done' : 'not yet'}`);
           return result;
         },

@@ -31,19 +31,24 @@ npx --yes @trychert/facetime@0.1.0-beta.10 dev --minutes 20
 
 Then make a **FaceTime Video** call to the line from your verified iPhone.
 
-### Camera: stand-in webcam
+### Camera: the phone camera page
 
 The shared Chert line currently forwards only the caller's audio (the bridge publishes
 `facetime-remote-audio` but not `facetime-remote-video`; caller video needs a video-enabled
-line). Until then, the agent can see through your laptop's webcam instead:
+line). Until then, the caller shows the device through a Safari page on the same iPhone:
 
 ```sh
-npm run webcam        # terminal 3, then open http://localhost:8090 and allow the camera
+npm run webcam                                              # terminal 3: prints a private link code
+npx --yes cloudflared tunnel --url http://localhost:8090    # terminal 4: prints an https address
 ```
 
-Keep that tab open. Whenever no caller video reaches the call, snapshots come from this
-camera. If the line starts forwarding caller video, the agent uses that automatically.
-After any code change, restart both terminals.
+On the iPhone (during the FaceTime call), open `https://<trycloudflare address>/<code>` in
+Safari, tap **Show my camera**, and point the back camera at the device. The page sends frames
+to the agent and shows the agent's red circle on the live view. The FaceTime call keeps going
+(its own camera pauses, since iOS lets one app use the camera at a time). Put the link in
+`CAMERA_LINK` in `.env.local` and `npm run ask-help` includes it in the text to Mom.
+
+If the line starts forwarding caller video, the agent uses that automatically.
 
 ## The three ways a call starts
 
