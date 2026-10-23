@@ -30,6 +30,19 @@ npx --yes @trychert/facetime@0.1.0-beta.10 dev --minutes 20
 ```
 
 Then make a **FaceTime Video** call to the line from your verified iPhone.
+
+### Camera: stand-in webcam
+
+The shared Chert line currently forwards only the caller's audio (the bridge publishes
+`facetime-remote-audio` but not `facetime-remote-video`; caller video needs a video-enabled
+line). Until then, the agent can see through your laptop's webcam instead:
+
+```sh
+npm run webcam        # terminal 3, then open http://localhost:8090 and allow the camera
+```
+
+Keep that tab open. Whenever no caller video reaches the call, snapshots come from this
+camera. If the line starts forwarding caller video, the agent uses that automatically.
 After any code change, restart both terminals.
 
 ## The three ways a call starts
@@ -52,6 +65,7 @@ After any code change, restart both terminals.
 | `imessage.mjs` | Optional iMessage sending through Chert |
 | `ask-help.mjs` | Path 2: text Mom and save the request |
 | `face.mjs`, `greet.mjs` | From Chert's starter: idle face, greeting on `bridge_ready` |
+| `webcam.mjs` | Stand-in camera: browser webcam page on localhost:8090 |
 | `test-picture.mjs` | `npm run test:picture -- photo.jpg 0.7 0.4` previews the circle |
 
 ## Tools the LLM can call

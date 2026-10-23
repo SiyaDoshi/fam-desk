@@ -6,3 +6,5 @@ node_modules/
 .DS_Store
 .help-request.json
 pointer-preview.jpg
+.webcam.jpg
+.webcam.jpg.tmp

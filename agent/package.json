@@ -9,9 +9,10 @@
   "scripts": {
     "start": "node --env-file=.env.local agent.mjs start",
     "ask-help": "node --env-file=.env.local ask-help.mjs",
-    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check image.mjs && node --check camera.mjs && node --check brain.mjs && node --check imessage.mjs && node --check ask-help.mjs",
+    "check": "node --check agent.mjs && node --check face.mjs && node --check greet.mjs && node --check image.mjs && node --check camera.mjs && node --check brain.mjs && node --check imessage.mjs && node --check ask-help.mjs && node --check webcam.mjs",
     "test:picture": "node test-picture.mjs",
-    "help": "node agent.mjs --help"
+    "help": "node agent.mjs --help",
+    "webcam": "node webcam.mjs"
   },
   "dependencies": {
     "@livekit/agents": "1.8.0",

@@ -2,10 +2,25 @@
 // It does NOT read every frame: copying 30 full video frames a second in JavaScript
 // slows the whole agent down (late replies, dropped calls). Instead, each snapshot
 // opens the video track briefly, takes one frame and closes it.
+import { readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc-node';
+import jpeg from 'jpeg-js';
 import { rotate } from './image.mjs';
 
 const ROTATION_DEGREES = [0, 90, 180, 270];   // VideoRotation enum order
+// Stand-in camera (npm run webcam): the latest browser webcam frame, used only when
+// no caller video reaches the call.
+const WEBCAM_FILE = fileURLToPath(new URL('./.webcam.jpg', import.meta.url));
+
+/** The latest stand-in webcam frame if it is under 5 s old, else null. */
+function webcamFrame() {
+  try {
+    if (Date.now() - statSync(WEBCAM_FILE).mtimeMs > 5000) return null;
+    const d = jpeg.decode(readFileSync(WEBCAM_FILE), { useTArray: true, maxMemoryUsageInMB: 256 });
+    return { data: d.data, width: d.width, height: d.height };
+  } catch { return null; }
+}
 
 export class CallerCamera {
   #track = null;
@@ -40,11 +55,15 @@ export class CallerCamera {
     };
   }
 
-  get hasVideo() { return this.#track !== null; }
+  get hasVideo() { return this.#track !== null || webcamFrame() !== null; }
 
   /** One upright RGBA frame { data, width, height } from the caller's camera, or null. */
   async snapshot(timeoutMs = 3000) {
-    if (!this.#track) return null;
+    if (!this.#track) {
+      const frame = webcamFrame();
+      if (frame) console.log('[camera] using the stand-in webcam (no caller video on this call)');
+      return frame;
+    }
     const reader = new VideoStream(this.#track).getReader();
     try {
       const next = reader.read();
