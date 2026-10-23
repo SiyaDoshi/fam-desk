@@ -50,14 +50,16 @@ function instructionsFor(request) {
 Your callers are often older parents who are not comfortable with technology. ${context}
 
 How you work:
-1. Ask what is wrong, then ask them to point their camera at the device. Call look_at_device to see it.
+1. Ask what is wrong, then ask them to point their camera at the device. As soon as they say anything
+   like "okay", "here" or "can you see it", call look_at_device. If they already described the device
+   and are showing it, call look_at_device right away instead of asking again.
 2. Call find_fix with the device and their problem in their words.
 3. Guide ONE step at a time. Before each step that involves pressing, plugging or finding something,
    call point_to with what to look at, then say "I've circled it on your screen."
 4. Wait for them to say they did it. Then call check_step. If it is not done, gently help again.
 5. When it works, or if it needs a repair person, call finish_call with a short summary, then say goodbye.
 
-Rules: speak in short, simple sentences with no jargon or brand-new terms. Never give more than one step
+Rules: keep every reply to one or two short sentences. Speak in simple sentences with no jargon or brand-new terms. Never give more than one step
 at a time. Praise them when they get it right. If you cannot see well, ask them to move closer or turn
 on a light. Be clear that you are an AI. Never ask for passwords or payment details.`;
 }
@@ -90,8 +92,8 @@ export default defineAgent({
 
     // ---- Call state and tools ----
     const state = { device: null, problem: request?.problem || '', steps: [], log: [] };
-    const takeSnapshot = () => {
-      const img = camera.snapshot();
+    const takeSnapshot = async () => {
+      const img = await camera.snapshot();
       return img ? shrink(img, 640) : null;
     };
     const noVideo = 'I cannot see the camera yet. Ask them to switch to FaceTime video and point the back camera at the device.';
@@ -101,7 +103,7 @@ export default defineAgent({
         description: 'Look at the caller\'s camera to identify the device and anything visibly wrong (lights, error messages).',
         parameters: z.object({ hint: z.string().describe('What the caller said it is, or empty').optional() }),
         execute: async ({ hint }) => {
-          const img = takeSnapshot();
+          const img = await takeSnapshot();
           if (!img) return noVideo;
           state.device = await brain.identify(toJpegBase64(img), hint || '');
           state.log.push(`Saw: ${JSON.stringify(state.device)}`);
@@ -123,7 +125,7 @@ export default defineAgent({
         description: 'Circle something on the caller\'s screen (a button, light, cable or setting) so they know where to look.',
         parameters: z.object({ target: z.string().describe('What to point at, e.g. "reset button"') }),
         execute: async ({ target }) => {
-          const img = takeSnapshot();
+          const img = await takeSnapshot();
           if (!img) return noVideo;
           const spot = await brain.locate(toJpegBase64(img), target, { width: img.width, height: img.height });
           if (!spot?.found) return `Could not find the ${target} in the picture. Ask them to move the camera closer to it.`;
@@ -140,7 +142,7 @@ export default defineAgent({
         description: 'Look at the camera to confirm the caller finished a step.',
         parameters: z.object({ step: z.string().describe('The step they were asked to do') }),
         execute: async ({ step }) => {
-          const img = takeSnapshot();
+          const img = await takeSnapshot();
           if (!img) return noVideo;
           const result = await brain.check(toJpegBase64(img), step);
           if (result.done) pointer = null;
@@ -172,6 +174,14 @@ export default defineAgent({
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, event => { speaking = event.newState === 'speaking'; });
     session.on(voice.AgentSessionEventTypes.Error, event => console.error('[session error]', event.error?.message || event.error));
+    // Latency log: shows which part is slow (turn detection, LLM, or text-to-speech).
+    session.on(voice.AgentSessionEventTypes.MetricsCollected, ({ metrics: m }) => {
+      if (m.type === 'eou_metrics') console.log(`[timing] end of turn detected after ${Math.round(m.endOfUtteranceDelayMs)} ms`);
+      if (m.type === 'llm_metrics') console.log(`[timing] LLM first token ${Math.round(m.ttftMs)} ms (total ${Math.round(m.durationMs)} ms)`);
+      if (m.type === 'tts_metrics') console.log(`[timing] TTS first audio ${Math.round(m.ttfbMs)} ms`);
+    });
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, e => { if (e.isFinal) console.log(`[heard] ${e.transcript}`); });
+    session.on(voice.AgentSessionEventTypes.FunctionToolsExecuted, e => console.log('[tools]', (e.functionCalls || []).map(c => c.name).join(', ')));
     ctx.addShutdownCallback(async () => {
       clearInterval(timer);
       camera.stop();

@@ -1,48 +1,50 @@
-// Watches the caller's FaceTime camera and keeps the latest frame, so tools can take a snapshot.
+// Takes snapshots of the caller's FaceTime camera, on demand.
+// It does NOT read every frame: copying 30 full video frames a second in JavaScript
+// slows the whole agent down (late replies, dropped calls). Instead, each snapshot
+// opens the video track briefly, takes one frame and closes it.
 import { RoomEvent, TrackKind, VideoBufferType, VideoStream } from '@livekit/rtc-node';
 import { rotate } from './image.mjs';
 
 const ROTATION_DEGREES = [0, 90, 180, 270];   // VideoRotation enum order
 
 export class CallerCamera {
-  #latest = null;        // { frame, rotation } as received
-  #reading = new Set();  // track sids already being read
+  #track = null;
 
-  /** Start reading video from `participant` (the caller) in `room`. */
+  /** Watch for the caller's (`participant`) video track in `room`. */
   constructor(room, participant) {
     const watch = (track, _pub, who) => {
       if (who.identity !== participant.identity || track.kind !== TrackKind.KIND_VIDEO) return;
-      if (this.#reading.has(track.sid)) return;
-      this.#reading.add(track.sid);
-      this.#read(track).finally(() => this.#reading.delete(track.sid));
+      if (this.#track !== track) console.log('[camera] caller video track available');
+      this.#track = track;
     };
+    const gone = (track) => { if (track === this.#track) this.#track = null; };
     room.on(RoomEvent.TrackSubscribed, watch);
+    room.on(RoomEvent.TrackUnsubscribed, gone);
     for (const pub of participant.trackPublications.values()) {
       if (pub.track) watch(pub.track, pub, participant);
     }
-    this.stop = () => room.off(RoomEvent.TrackSubscribed, watch);
+    this.stop = () => { room.off(RoomEvent.TrackSubscribed, watch); room.off(RoomEvent.TrackUnsubscribed, gone); };
   }
 
-  async #read(track) {
-    console.log('[camera] caller video track subscribed');
+  get hasVideo() { return this.#track !== null; }
+
+  /** One upright RGBA frame { data, width, height } from the caller's camera, or null. */
+  async snapshot(timeoutMs = 3000) {
+    if (!this.#track) return null;
+    const reader = new VideoStream(this.#track).getReader();
     try {
-      for await (const event of new VideoStream(track)) {
-        this.#latest = { frame: event.frame, rotation: event.rotation };
-      }
+      const next = reader.read();
+      const timeout = new Promise(resolve => setTimeout(() => resolve({ done: true }), timeoutMs));
+      const { value, done } = await Promise.race([next, timeout]);
+      if (done || !value) return null;
+      const rgba = value.frame.convert(VideoBufferType.RGBA);
+      const img = { data: new Uint8Array(rgba.data), width: rgba.width, height: rgba.height };
+      return rotate(img, ROTATION_DEGREES[value.rotation] ?? 0);
     } catch (err) {
-      console.warn('[camera] video stream ended:', err.message);
+      console.warn('[camera] snapshot failed:', err.message);
+      return null;
+    } finally {
+      reader.cancel().catch(() => {});
     }
-  }
-
-  /** True once at least one frame has arrived. */
-  get hasVideo() { return this.#latest !== null; }
-
-  /** The latest frame as an upright RGBA image { data, width, height }, or null. */
-  snapshot() {
-    if (!this.#latest) return null;
-    const { frame, rotation } = this.#latest;
-    const rgba = frame.convert(VideoBufferType.RGBA);
-    const img = { data: new Uint8Array(rgba.data), width: rgba.width, height: rgba.height };
-    return rotate(img, ROTATION_DEGREES[rotation] ?? 0);
   }
 }
