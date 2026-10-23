@@ -11,17 +11,20 @@ const VISION_MODEL = process.env.NEBIUS_VISION_MODEL || 'Qwen/Qwen2.5-VL-72B-Ins
 const KEENABLE_KEY = process.env.KEENABLE_API_KEY || '';
 const TIMEOUT_MS = Number(process.env.BRAIN_TIMEOUT_MS || 25000);
 
+// Fake answers (used until NEBIUS_API_KEY is set, or if a call fails).
+// Scenario: a laptop that won't charge. Real vision replaces all of this with what the camera sees.
 const FAKES = {
   identify: () => ({
-    device_type: 'Wi-Fi router', brand: 'Netgear', model: 'Nighthawk R7000',
-    visible_issue: 'The internet light is orange instead of white', confidence: 0.6,
+    device_type: 'laptop and charger', brand: 'Apple', model: 'MacBook',
+    visible_issue: 'The laptop is not charging; the charger light is off', confidence: 0.6,
   }),
   research: () => ({
     steps: [
-      { text: 'Unplug the black power cable from the back of the router', target: 'power cable port' },
-      { text: 'Wait about 30 seconds, then plug the power cable back in', target: 'power cable port' },
-      { text: 'Wait two minutes until the internet light turns white', target: 'internet light' },
-      { text: 'If it is still orange, press and release the small reset button with a paperclip', target: 'reset button' },
+      { text: 'Check the charger plug is pushed all the way into the wall outlet', target: 'wall plug' },
+      { text: 'Unplug the charging cable from the laptop, wait five seconds, and plug it back in firmly', target: 'charging port' },
+      { text: 'Try a different wall outlet, in case this one has no power', target: 'wall outlet' },
+      { text: 'Look at the battery icon at the top right of the screen: it should show a lightning bolt', target: 'battery icon' },
+      { text: 'If it still does not charge, restart the laptop from the Apple menu', target: 'Apple menu' },
     ],
     sources: [],
   }),
